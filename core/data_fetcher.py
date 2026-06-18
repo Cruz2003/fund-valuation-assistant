@@ -1,6 +1,7 @@
 import logging
 import akshare as ak
 import time
+import requests
 from typing import Optional
 from datetime import datetime
 
@@ -142,8 +143,8 @@ class DataFetcher:
             return {}
 
     def _fetch_a_quotes(self, codes: list) -> dict:
-        """Fetch A-share daily quotes via Sina source (per-stock).
-        Much faster than the full-market spot API."""
+        """Fetch A-share real-time quotes via Sina single-stock API.
+        ~0.1s per stock, returns real-time price + change vs prev close."""
         result = {}
         for code in codes:
             try:
@@ -154,18 +155,22 @@ class DataFetcher:
                     symbol = "sz" + code
                 else:
                     symbol = code
-                df = ak.stock_zh_a_daily(symbol=symbol, adjust="")
-                if df is None or len(df) < 2:
-                    continue
-                latest = df.iloc[-1]
-                prev = df.iloc[-2]
-                close = float(latest["close"])
-                prev_close = float(prev["close"])
-                change_pct = (close - prev_close) / prev_close * 100
+                url = f"http://hq.sinajs.cn/list={symbol}"
+                r = requests.get(
+                    url,
+                    headers={"Referer": "https://finance.sina.com.cn"},
+                    timeout=10,
+                )
+                # Format: var hq_str_sh600519="name,open,prev_close,price,..."
+                fields = r.text.split('"')[1].split(",")
+                name = fields[0]
+                prev_close = float(fields[2])
+                price = float(fields[3])
+                change_pct = (price - prev_close) / prev_close * 100
                 result[code] = {
-                    "price": close,
+                    "price": price,
                     "change_pct": round(change_pct, 2),
-                    "name": code,
+                    "name": name,
                 }
             except Exception as e:
                 logger.error(f"A-share quote error for {code}: {e}")
