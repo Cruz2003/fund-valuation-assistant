@@ -1,7 +1,10 @@
+import logging
 import akshare as ak
 import time
 from typing import Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 
@@ -55,7 +58,7 @@ class DataFetcher:
                 "nav_date": str(latest["净值日期"]),
             }
         except Exception as e:
-            print(f"Error fetching fund info for {code}: {e}")
+            logger.error(f"Error fetching fund info for {code}: {e}")
             return None
 
     def _get_fund_meta(self, code: str) -> Optional[dict]:
@@ -103,7 +106,7 @@ class DataFetcher:
                     })
             return holdings[:10]
         except Exception as e:
-            print(f"Error fetching holdings for {code}: {e}")
+            logger.error(f"Error fetching holdings for {code}: {e}")
             return None
 
     def _detect_market(self, code: str) -> str:
@@ -130,7 +133,7 @@ class DataFetcher:
             else:
                 return {}
         except Exception as e:
-            print(f"Error fetching {market} quotes: {e}")
+            logger.error(f"Error fetching {market} quotes: {e}")
             return {}
 
     def _fetch_a_quotes(self, codes: list) -> dict:
@@ -160,7 +163,7 @@ class DataFetcher:
                     }
             return result
         except Exception as e:
-            print(f"A-share quote error: {e}")
+            logger.error(f"A-share quote error: {e}")
             return {}
 
     def _fetch_hk_quotes(self, codes: list) -> dict:
@@ -183,7 +186,7 @@ class DataFetcher:
                     "name": code,
                 }
             except Exception as e:
-                print(f"HK quote error for {code}: {e}")
+                logger.error(f"HK quote error for {code}: {e}")
         return result
 
     def _fetch_us_quotes(self, codes: list) -> dict:
@@ -206,7 +209,7 @@ class DataFetcher:
                     "name": code,
                 }
             except Exception as e:
-                print(f"US quote error for {code}: {e}")
+                logger.error(f"US quote error for {code}: {e}")
         return result
 
     def search_funds(self, keyword: str) -> Optional[list]:
@@ -227,5 +230,5 @@ class DataFetcher:
                 })
             return results
         except Exception as e:
-            print(f"Search error: {e}")
+            logger.error(f"Search error: {e}")
             return None

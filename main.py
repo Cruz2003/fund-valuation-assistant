@@ -5,7 +5,6 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
 
 from config import APP_NAME
 from data.database import Database
@@ -16,14 +15,19 @@ from core.alert_service import AlertService
 from scheduler import RefreshScheduler
 from gui.main_window import MainWindow
 
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+
 
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
-
-    # Enable high DPI
-    app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
     # Init backend
     db = Database()
