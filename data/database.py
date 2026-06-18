@@ -169,6 +169,8 @@ class Database:
     def log_valuation(self, fund_id: int, estimated_nav: float, change_pct: float):
         conn = self._get_conn()
         try:
+            # Replace any existing record — keep only the latest per fund
+            conn.execute("DELETE FROM valuation_log WHERE fund_id = ?", (fund_id,))
             conn.execute(
                 "INSERT INTO valuation_log (fund_id, estimated_nav, change_pct) "
                 "VALUES (?, ?, ?)",

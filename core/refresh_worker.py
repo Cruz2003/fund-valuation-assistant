@@ -114,3 +114,21 @@ class RefreshHoldingsWorker(QObject):
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class RefreshFundListWorker(QObject):
+    """Downloads full fund list from AkShare in background."""
+
+    finished = Signal(bool)      # success or failure
+    error = Signal(str)
+
+    def __init__(self, fund_manager):
+        super().__init__()
+        self.fund_manager = fund_manager
+
+    def run(self):
+        try:
+            ok = self.fund_manager.refresh_fund_list()
+            self.finished.emit(ok)
+        except Exception as e:
+            self.error.emit(str(e))

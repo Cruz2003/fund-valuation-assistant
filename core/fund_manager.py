@@ -18,6 +18,14 @@ class FundManager:
         """Search for funds by keyword."""
         return self.fetcher.search_funds(keyword) or []
 
+    def has_fund_list_cache(self) -> bool:
+        """Check if local fund list cache exists."""
+        return self.fetcher.has_cache()
+
+    def refresh_fund_list(self) -> bool:
+        """Force re-download the full fund list from AkShare."""
+        return self.fetcher.refresh_fund_list()
+
     def add_fund(self, code: str) -> Optional[dict]:
         """Add a fund by code: fetch info + holdings, store in DB.
         ETF feeder funds (ETF联接) may have empty holdings — that's OK,
@@ -58,7 +66,16 @@ class FundManager:
             progress_callback: optional fn(str) called with progress messages
         """
         fund_id = fund["id"]
-        nav_yesterday = fund["nav_yesterday"]
+        code = fund["code"]
+
+        # 1. Refresh nav_yesterday from the API so the baseline is always current
+        latest_nav = self.fetcher.fetch_latest_nav(code)
+        if latest_nav:
+            self.db.update_fund_nav(fund_id, latest_nav)
+            nav_yesterday = latest_nav
+        else:
+            nav_yesterday = fund["nav_yesterday"]
+
         holdings = self.db.get_holdings(fund_id)
 
         if not holdings:

@@ -73,6 +73,11 @@ class FundListPanel(QWidget):
         layout.addWidget(self.empty_label)
 
     def load_funds(self, funds: list):
+        # Preserve existing _valuation data so add/delete doesn't reset all funds
+        for fund in funds:
+            old = self._funds.get(fund["code"], {})
+            if "_valuation" in old:
+                fund["_valuation"] = old["_valuation"]
         self._funds = {}
         self.list_widget.clear()
         for fund in funds:

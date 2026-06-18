@@ -14,8 +14,11 @@ class SearchFundDialog(QDialog):
         self._selected_code = None
         self._search_thread = None
         self._search_worker = None
+        self._refresh_thread = None
+        self._refresh_worker = None
         self.setObjectName("searchDialog")
         self._setup_ui()
+        self._update_cache_status()
 
     def _setup_ui(self):
         self.setWindowTitle("添加基金")
@@ -35,6 +38,17 @@ class SearchFundDialog(QDialog):
         search_layout.addWidget(self.search_btn)
         layout.addLayout(search_layout)
 
+        # Refresh cache button row
+        refresh_layout = QHBoxLayout()
+        self.cache_status_label = QLabel()
+        self.cache_status_label.setObjectName("cacheStatus")
+        refresh_layout.addWidget(self.cache_status_label, 1)
+        self.refresh_list_btn = QPushButton("🔄 刷新基金列表")
+        self.refresh_list_btn.clicked.connect(self._do_refresh_list)
+        self.refresh_list_btn.setObjectName("refreshListBtn")
+        refresh_layout.addWidget(self.refresh_list_btn)
+        layout.addLayout(refresh_layout)
+
         self.results_table = QTableWidget()
         self.results_table.setColumnCount(3)
         self.results_table.setHorizontalHeaderLabels(["基金代码", "基金名称", "类型"])
@@ -53,9 +67,66 @@ class SearchFundDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def _update_cache_status(self):
+        if self.fund_manager.has_fund_list_cache():
+            self.cache_status_label.setText("✅ 基金列表已就绪")
+            self.search_input.setEnabled(True)
+            self.search_btn.setEnabled(True)
+        else:
+            self.cache_status_label.setText("⚠ 尚未下载基金列表")
+            self.search_input.setEnabled(False)
+            self.search_btn.setEnabled(False)
+            self.status_label.setText("请先点击「🔄 刷新基金列表」下载基金数据")
+
+    def _do_refresh_list(self):
+        self.refresh_list_btn.setEnabled(False)
+        self.cache_status_label.setText("⏳ 正在从网络下载基金列表（可能需要几分钟）...")
+        self.status_label.setText("下载中...")
+
+        from core.refresh_worker import RefreshFundListWorker
+
+        self._refresh_thread = QThread()
+        self._refresh_worker = RefreshFundListWorker(self.fund_manager)
+        self._refresh_worker.moveToThread(self._refresh_thread)
+
+        self._refresh_thread.started.connect(self._refresh_worker.run)
+        self._refresh_worker.finished.connect(self._on_refresh_done)
+        self._refresh_worker.error.connect(self._on_refresh_error)
+        self._refresh_worker.finished.connect(self._refresh_thread.quit)
+        self._refresh_worker.error.connect(self._refresh_thread.quit)
+
+        self._refresh_thread.start()
+
+    def _on_refresh_done(self, ok: bool):
+        self.refresh_list_btn.setEnabled(True)
+        if ok:
+            self._update_cache_status()
+            self.status_label.setText("基金列表下载完成，可以搜索了")
+        else:
+            self.cache_status_label.setText("⚠ 下载失败，请重试")
+            self.status_label.setText("下载基金列表失败，请检查网络后重试")
+        self._cleanup_refresh_thread()
+
+    def _on_refresh_error(self, error_msg: str):
+        self.refresh_list_btn.setEnabled(True)
+        self.cache_status_label.setText("⚠ 下载失败，请重试")
+        self.status_label.setText(f"下载失败: {error_msg}")
+        self._cleanup_refresh_thread()
+
+    def _cleanup_refresh_thread(self):
+        if self._refresh_worker:
+            self._refresh_worker.deleteLater()
+            self._refresh_worker = None
+        if self._refresh_thread:
+            self._refresh_thread.deleteLater()
+            self._refresh_thread = None
+
     def _do_search(self):
         keyword = self.search_input.text().strip()
         if not keyword:
+            return
+        if not self.fund_manager.has_fund_list_cache():
+            self.status_label.setText("请先下载基金列表")
             return
         self.search_btn.setEnabled(False)
         self.status_label.setText("搜索中...")
@@ -80,7 +151,7 @@ class SearchFundDialog(QDialog):
         self.search_btn.setEnabled(True)
         self.results_table.setRowCount(0)
         if not results:
-            self.status_label.setText("未找到匹配的基金")
+            self.status_label.setText("未找到匹配的基金，可尝试刷新基金列表后重试")
             return
         self.status_label.setText(f"找到 {len(results)} 个结果")
         for r in results:
@@ -103,10 +174,13 @@ class SearchFundDialog(QDialog):
             self._search_thread = None
 
     def reject(self):
-        # Clean up any running search thread before closing
+        # Clean up any running threads before closing
         if self._search_thread and self._search_thread.isRunning():
             self._search_thread.quit()
             self._search_thread.wait(1000)
+        if self._refresh_thread and self._refresh_thread.isRunning():
+            self._refresh_thread.quit()
+            self._refresh_thread.wait(1000)
         super().reject()
 
     def _on_accept(self):

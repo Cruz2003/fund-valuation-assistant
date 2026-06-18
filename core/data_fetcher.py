@@ -2,6 +2,7 @@ import logging
 import akshare as ak
 import time
 import requests
+import os
 from typing import Optional
 from datetime import datetime
 
@@ -9,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 import pandas as pd
 
-_fund_list_cache: Optional[pd.DataFrame] = None
+# Path to local fund list cache
+_FUND_LIST_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "fund_list.csv")
 
 
 def _retry(func, *args, max_retries=2, delay=3, **kwargs):
@@ -27,20 +29,49 @@ def _retry(func, *args, max_retries=2, delay=3, **kwargs):
 class DataFetcher:
     """Encapsulates all AkShare data fetching operations."""
 
-    # Cache for the full fund name list (refreshed on force)
-    _fund_list_cache: Optional[pd.DataFrame] = None
+    def _get_fund_list(self) -> Optional[pd.DataFrame]:
+        """Load fund list from local CSV cache. Returns None if cache missing."""
+        try:
+            if os.path.exists(_FUND_LIST_PATH):
+                df = pd.read_csv(_FUND_LIST_PATH, dtype=str)
+                if not df.empty:
+                    return df
+        except Exception as e:
+            logger.error(f"Failed to load fund list cache: {e}")
+        return None
 
-    def _get_fund_list(self, force: bool = False) -> Optional[pd.DataFrame]:
-        """Get the full fund name list from AkShare, cached at module level."""
-        if DataFetcher._fund_list_cache is not None and not force:
-            return DataFetcher._fund_list_cache
+    def refresh_fund_list(self) -> bool:
+        """Force re-download the full fund list from AkShare and save to CSV."""
         try:
             df = ak.fund_name_em()
-            if df is not None and not df.empty:
-                DataFetcher._fund_list_cache = df
-            return df
-        except Exception:
-            return None
+            if df is None or df.empty:
+                return False
+            os.makedirs(os.path.dirname(_FUND_LIST_PATH), exist_ok=True)
+            df.to_csv(_FUND_LIST_PATH, index=False)
+            logger.info(f"Fund list refreshed: {len(df)} funds saved to {_FUND_LIST_PATH}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to refresh fund list: {e}")
+            return False
+
+    def has_cache(self) -> bool:
+        """Check if local fund list cache file exists."""
+        return os.path.exists(_FUND_LIST_PATH)
+
+    def fetch_latest_nav(self, code: str) -> Optional[float]:
+        """Quickly fetch the latest published NAV via Tiantian API.
+        Returns the most recent closing NAV (typically yesterday's)."""
+        try:
+            import re
+            url = f"https://fundgz.1234567.com.cn/js/{code}.js"
+            r = requests.get(url, timeout=10)
+            # jsonpgz({"dwjz":"2.4910",...});
+            match = re.search(r'"dwjz":"([^"]+)"', r.text)
+            if match:
+                return float(match.group(1))
+        except Exception as e:
+            logger.error(f"Failed to fetch latest NAV for {code}: {e}")
+        return None
 
     def fetch_fund_info(self, code: str) -> Optional[dict]:
         """Fetch fund basic info including name and latest NAV."""
