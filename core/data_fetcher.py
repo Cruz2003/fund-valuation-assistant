@@ -81,15 +81,20 @@ class DataFetcher:
         return meta["name"] if meta else None
 
     def fetch_fund_holdings(self, code: str) -> Optional[list]:
-        """Fetch top 10 holdings for a fund."""
+        """Fetch top 10 holdings for a fund (latest quarter only)."""
         try:
-            # Try latest year first
+            # Try latest year first, fall back to all years
             current_year = str(datetime.now().year)
             df = ak.fund_portfolio_hold_em(symbol=code, date=current_year)
             if df is None or df.empty:
                 df = ak.fund_portfolio_hold_em(symbol=code)
             if df is None or df.empty:
                 return None
+
+            # Data spans multiple quarters — keep only the latest quarter
+            if "季度" in df.columns:
+                latest_quarter = sorted(df["季度"].unique(), reverse=True)[0]
+                df = df[df["季度"] == latest_quarter]
 
             holdings = []
             for _, row in df.iterrows():
