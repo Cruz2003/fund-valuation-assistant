@@ -195,7 +195,10 @@ class DataFetcher:
         result = {}
         for code in codes:
             try:
-                df = ak.stock_us_daily(symbol=code, adjust="")
+                # Normalize US stock codes: fund data uses BRK_B but
+                # AkShare/Sina expects BRK.B for class-designated stocks
+                symbol = code.replace("_", ".")
+                df = ak.stock_us_daily(symbol=symbol, adjust="")
                 if df is None or len(df) < 2:
                     continue
                 latest = df.iloc[-1]
