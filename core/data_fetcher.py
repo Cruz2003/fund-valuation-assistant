@@ -2,6 +2,10 @@ import akshare as ak
 import time
 from typing import Optional
 
+import pandas as pd
+
+_fund_list_cache: Optional[pd.DataFrame] = None
+
 
 def _retry(func, *args, max_retries=2, delay=3, **kwargs):
     """Simple retry wrapper for flaky network calls."""
@@ -18,6 +22,21 @@ def _retry(func, *args, max_retries=2, delay=3, **kwargs):
 class DataFetcher:
     """Encapsulates all AkShare data fetching operations."""
 
+    # Cache for the full fund name list (refreshed on force)
+    _fund_list_cache: Optional[pd.DataFrame] = None
+
+    def _get_fund_list(self, force: bool = False) -> Optional[pd.DataFrame]:
+        """Get the full fund name list from AkShare, cached at module level."""
+        if DataFetcher._fund_list_cache is not None and not force:
+            return DataFetcher._fund_list_cache
+        try:
+            df = ak.fund_name_em()
+            if df is not None and not df.empty:
+                DataFetcher._fund_list_cache = df
+            return df
+        except Exception:
+            return None
+
     def fetch_fund_info(self, code: str) -> Optional[dict]:
         """Fetch fund basic info including name and latest NAV."""
         try:
@@ -26,11 +45,11 @@ class DataFetcher:
             if df is None or df.empty:
                 return None
             latest = df.iloc[-1]
-            name = self._get_fund_name(code)
+            meta = self._get_fund_meta(code)
             return {
                 "code": code,
-                "name": name or code,
-                "fund_type": "",
+                "name": meta["name"] if meta else code,
+                "fund_type": meta["fund_type"] if meta else "",
                 "nav_yesterday": float(latest["单位净值"]),
                 "nav_date": str(latest["净值日期"]),
             }
@@ -38,16 +57,24 @@ class DataFetcher:
             print(f"Error fetching fund info for {code}: {e}")
             return None
 
-    def _get_fund_name(self, code: str) -> Optional[str]:
-        """Get fund name from code using akshare fund list."""
+    def _get_fund_meta(self, code: str) -> Optional[dict]:
+        """Get fund name and type from the fund list."""
         try:
-            df = ak.fund_name_em()
+            df = self._get_fund_list()
             match = df[df["基金代码"] == code]
             if not match.empty:
-                return match.iloc[0]["基金简称"]
+                row = match.iloc[0]
+                return {
+                    "name": str(row["基金简称"]),
+                    "fund_type": str(row.get("基金类型", "")),
+                }
         except Exception:
             pass
         return None
+
+    def _get_fund_name(self, code: str) -> Optional[str]:
+        meta = self._get_fund_meta(code)
+        return meta["name"] if meta else None
 
     def fetch_fund_holdings(self, code: str) -> Optional[list]:
         """Fetch top 10 holdings for a fund."""
@@ -183,7 +210,7 @@ class DataFetcher:
     def search_funds(self, keyword: str) -> Optional[list]:
         """Search funds by keyword (code or name)."""
         try:
-            df = ak.fund_name_em()
+            df = self._get_fund_list()
             if df is None or df.empty:
                 return None
             mask = (df["基金代码"].str.contains(keyword, na=False) |
