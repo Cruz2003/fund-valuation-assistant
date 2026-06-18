@@ -1,26 +1,35 @@
 from datetime import datetime
 from typing import Optional, Callable
 from PySide6.QtCore import QTimer, QObject
+from config import MARKET_HOURS
 
 
 def is_market_open(market: str, hour: int = None, minute: int = None) -> bool:
     """Check if a market is currently in trading hours (Beijing time)."""
     if hour is None:
         now = datetime.now()
+        # Skip weekends
+        if now.weekday() >= 5:
+            return False
         hour = now.hour
         minute = now.minute
+    else:
+        # If caller passes explicit hour/minute, trust them on the date
+        pass
 
+    hours = MARKET_HOURS.get(market)
+    if not hours:
+        return False
+
+    open_minutes = hours["open"][0] * 60 + hours["open"][1]
+    close_minutes = hours["close"][0] * 60 + hours["close"][1]
     time_minutes = hour * 60 + minute
 
-    if market == "A":
-        return 9 * 60 + 30 <= time_minutes <= 15 * 60
-    elif market == "HK":
-        return 9 * 60 + 30 <= time_minutes <= 16 * 60
-    elif market == "US":
-        us_open = 21 * 60 + 30
-        us_close = 4 * 60
-        return time_minutes >= us_open or time_minutes <= us_close
-    return False
+    if close_minutes < open_minutes:
+        # Crosses midnight (US market)
+        return time_minutes >= open_minutes or time_minutes <= close_minutes
+    else:
+        return open_minutes <= time_minutes <= close_minutes
 
 
 def get_market_status() -> dict:
