@@ -142,34 +142,34 @@ class DataFetcher:
             return {}
 
     def _fetch_a_quotes(self, codes: list) -> dict:
-        """Fetch A-share real-time quotes via Sina source.
-        Sina uses code format: sh600519, sz000001, bj920000."""
-        try:
-            df = ak.stock_zh_a_spot()
-            if df is None or df.empty:
-                return {}
-            # Build lookup: try both raw code and with sh/sz prefix
-            result = {}
-            for code in codes:
-                # Try exact match first
-                match = df[df["代码"] == code]
-                # Try with sh prefix (60xxxx, 688xxx)
-                if match.empty and (code.startswith("60") or code.startswith("688")):
-                    match = df[df["代码"] == ("sh" + code)]
-                # Try with sz prefix (00xxxx, 30xxxx)
-                if match.empty and (code.startswith("00") or code.startswith("30")):
-                    match = df[df["代码"] == ("sz" + code)]
-                if not match.empty:
-                    row = match.iloc[0]
-                    result[code] = {
-                        "price": float(row["最新价"]),
-                        "change_pct": float(row["涨跌幅"]),
-                        "name": str(row["名称"]),
-                    }
-            return result
-        except Exception as e:
-            logger.error(f"A-share quote error: {e}")
-            return {}
+        """Fetch A-share daily quotes via Sina source (per-stock).
+        Much faster than the full-market spot API."""
+        result = {}
+        for code in codes:
+            try:
+                # Map to Sina prefix format: sh600519, sz000001
+                if code.startswith(("60", "688")):
+                    symbol = "sh" + code
+                elif code.startswith(("00", "30")):
+                    symbol = "sz" + code
+                else:
+                    symbol = code
+                df = ak.stock_zh_a_daily(symbol=symbol, adjust="")
+                if df is None or len(df) < 2:
+                    continue
+                latest = df.iloc[-1]
+                prev = df.iloc[-2]
+                close = float(latest["close"])
+                prev_close = float(prev["close"])
+                change_pct = (close - prev_close) / prev_close * 100
+                result[code] = {
+                    "price": close,
+                    "change_pct": round(change_pct, 2),
+                    "name": code,
+                }
+            except Exception as e:
+                logger.error(f"A-share quote error for {code}: {e}")
+        return result
 
     def _fetch_hk_quotes(self, codes: list) -> dict:
         """Fetch HK stock quotes via daily historical data (Sina).

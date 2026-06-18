@@ -77,27 +77,17 @@ class FundManager:
         for market, stocks in markets.items():
             codes = [s["stock_code"] for s in stocks]
 
-            if market == "A":
-                # A-shares: single batch call via Sina spot API
+            # Per-stock fetching with progress (all markets)
+            total = len(stocks)
+            for i, s in enumerate(stocks, 1):
+                name = s.get("stock_name", s["stock_code"])
                 if progress_callback:
-                    progress_callback(f"A股行情 ({len(codes)}只)")
-                quotes = self.fetcher.fetch_stock_quotes(codes, market)
+                    progress_callback(f"{name} ({i}/{total})")
+                quotes = self.fetcher.fetch_stock_quotes(
+                    [s["stock_code"]], market
+                )
                 if quotes:
                     all_quotes.update(quotes)
-            else:
-                # HK / US: one API call per stock (daily historical)
-                total = len(stocks)
-                for i, s in enumerate(stocks, 1):
-                    name = s.get("stock_name", s["stock_code"])
-                    if progress_callback:
-                        progress_callback(
-                            f"{name} ({i}/{total})"
-                        )
-                    quotes = self.fetcher.fetch_stock_quotes(
-                        [s["stock_code"]], market
-                    )
-                    if quotes:
-                        all_quotes.update(quotes)
 
         # Calculate valuation
         if progress_callback:
