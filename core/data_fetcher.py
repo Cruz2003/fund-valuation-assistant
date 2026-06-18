@@ -177,10 +177,33 @@ class DataFetcher:
         return result
 
     def _fetch_hk_quotes(self, codes: list) -> dict:
-        """Fetch HK stock quotes via daily historical data (Sina).
-        Calculates change from latest two trading days."""
+        """Fetch HK stock quotes — Sina real-time first, daily fallback."""
         result = {}
         for code in codes:
+            # 1. Try Sina real-time (hk00700)
+            try:
+                url = f"http://hq.sinajs.cn/list=hk{code}"
+                r = requests.get(
+                    url,
+                    headers={"Referer": "https://finance.sina.com.cn"},
+                    timeout=10,
+                )
+                fields = r.text.split('"')[1].split(",")
+                name = fields[1]
+                price = float(fields[6])
+                prev_close = float(fields[3])
+                if price > 0:
+                    change_pct = (price - prev_close) / prev_close * 100
+                    result[code] = {
+                        "price": price,
+                        "change_pct": round(change_pct, 2),
+                        "name": name,
+                    }
+                    continue
+            except Exception:
+                pass
+
+            # 2. Fallback: daily historical (yesterday's close)
             try:
                 df = ak.stock_hk_daily(symbol=code, adjust="")
                 if df is None or len(df) < 2:
@@ -200,13 +223,35 @@ class DataFetcher:
         return result
 
     def _fetch_us_quotes(self, codes: list) -> dict:
-        """Fetch US stock quotes via daily historical data (Sina).
-        Calculates change from latest two trading days."""
+        """Fetch US stock quotes — Sina real-time first, daily fallback."""
         result = {}
         for code in codes:
+            # 1. Try Sina real-time (gb_aapl, gb_brk.b)
             try:
-                # Normalize US stock codes: fund data uses BRK_B but
-                # AkShare/Sina expects BRK.B for class-designated stocks
+                sina_sym = "gb_" + code.lower().replace("_", ".")
+                url = f"http://hq.sinajs.cn/list={sina_sym}"
+                r = requests.get(
+                    url,
+                    headers={"Referer": "https://finance.sina.com.cn"},
+                    timeout=10,
+                )
+                fields = r.text.split('"')[1].split(",")
+                name = fields[0]
+                price = float(fields[1])
+                if price > 0:
+                    # fields[2] is change_pct directly from Sina
+                    change_pct = float(fields[2]) if fields[2] else 0.0
+                    result[code] = {
+                        "price": price,
+                        "change_pct": round(change_pct, 2),
+                        "name": name,
+                    }
+                    continue
+            except Exception:
+                pass
+
+            # 2. Fallback: daily historical (yesterday's close)
+            try:
                 symbol = code.replace("_", ".")
                 df = ak.stock_us_daily(symbol=symbol, adjust="")
                 if df is None or len(df) < 2:
