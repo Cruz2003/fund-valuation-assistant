@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Callable
 from data.database import Database
 from core.data_fetcher import DataFetcher
 from core.valuation_engine import ValuationEngine
@@ -19,7 +19,10 @@ class FundManager:
         return self.fetcher.search_funds(keyword) or []
 
     def add_fund(self, code: str) -> Optional[dict]:
-        """Add a fund by code: fetch info + holdings, store in DB."""
+        """Add a fund by code: fetch info + holdings, store in DB.
+        ETF feeder funds (ETF联接) may have empty holdings — that's OK,
+        the fund is still added with basic NAV tracking.
+        """
         existing = self.db.get_fund_by_code(code)
         if existing:
             return existing
@@ -39,14 +42,21 @@ class FundManager:
         if holdings:
             self.db.replace_holdings(fund["id"], holdings)
 
+        fund["_has_holdings"] = bool(holdings)
         return fund
 
     def delete_fund(self, fund_id: int):
         """Remove a fund and its associated data."""
         self.db.delete_fund(fund_id)
 
-    def refresh_fund(self, fund: dict) -> Optional[dict]:
-        """Refresh a single fund's valuation."""
+    def refresh_fund(self, fund: dict,
+                     progress_callback: Optional[Callable] = None) -> Optional[dict]:
+        """Refresh a single fund's valuation.
+
+        Args:
+            fund: fund dict from DB
+            progress_callback: optional fn(str) called with progress messages
+        """
         fund_id = fund["id"]
         nav_yesterday = fund["nav_yesterday"]
         holdings = self.db.get_holdings(fund_id)
@@ -54,22 +64,44 @@ class FundManager:
         if not holdings:
             return None
 
-        # Group holdings by market for batch fetching
-        markets = {}
+        # Group holdings by market (keep full holding dicts for stock names)
+        markets: dict[str, list] = {}
         for h in holdings:
             m = h.get("market", "A")
             if m not in markets:
                 markets[m] = []
-            markets[m].append(h["stock_code"])
+            markets[m].append(h)
 
-        # Fetch quotes for each market
+        # Fetch quotes market by market, with per-stock progress
         all_quotes = {}
-        for market, codes in markets.items():
-            quotes = self.fetcher.fetch_stock_quotes(codes, market)
-            if quotes:
-                all_quotes.update(quotes)
+        for market, stocks in markets.items():
+            codes = [s["stock_code"] for s in stocks]
+
+            if market == "A":
+                # A-shares: single batch call via Sina spot API
+                if progress_callback:
+                    progress_callback(f"A股行情 ({len(codes)}只)")
+                quotes = self.fetcher.fetch_stock_quotes(codes, market)
+                if quotes:
+                    all_quotes.update(quotes)
+            else:
+                # HK / US: one API call per stock (daily historical)
+                total = len(stocks)
+                for i, s in enumerate(stocks, 1):
+                    name = s.get("stock_name", s["stock_code"])
+                    if progress_callback:
+                        progress_callback(
+                            f"{name} ({i}/{total})"
+                        )
+                    quotes = self.fetcher.fetch_stock_quotes(
+                        [s["stock_code"]], market
+                    )
+                    if quotes:
+                        all_quotes.update(quotes)
 
         # Calculate valuation
+        if progress_callback:
+            progress_callback("计算估值...")
         result = self.engine.calculate(nav_yesterday, holdings, all_quotes)
 
         # Log to DB
@@ -94,6 +126,15 @@ class FundManager:
             if result:
                 results.append(result)
         return results
+
+    def refresh_holdings(self, fund: dict) -> Optional[dict]:
+        """Fetch latest holdings from AkShare and replace in DB.
+        Returns the updated fund detail dict (or None on failure)."""
+        fund_id = fund["id"]
+        holdings = self.fetcher.fetch_fund_holdings(fund["code"])
+        if holdings:
+            self.db.replace_holdings(fund_id, holdings)
+        return self.get_fund_detail(fund_id)
 
     def get_all_funds(self) -> list:
         """Get all tracked funds."""

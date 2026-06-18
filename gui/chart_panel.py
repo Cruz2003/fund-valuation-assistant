@@ -1,6 +1,9 @@
 """Contribution bar chart + weight pie chart via Matplotlib."""
 import matplotlib
 matplotlib.use("QtAgg")
+# Configure CJK font — must run before any figure is created
+matplotlib.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "KaiTi"]
+matplotlib.rcParams["axes.unicode_minus"] = False
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import QGroupBox, QVBoxLayout
@@ -16,11 +19,13 @@ class ChartPanel(QGroupBox):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 16, 8, 8)
 
-        self.figure = Figure(figsize=(8, 4.5), dpi=100)
+        self.figure = Figure(figsize=(9, 5.5), dpi=100)
         self.figure.patch.set_facecolor("#0D1117")
+        # bar chart (left) — contribution bars with stock-name y-tick labels
         self.ax_bar = self.figure.add_subplot(1, 2, 1)
+        # pie chart (right) — weight distribution; legend outside on the right
         self.ax_pie = self.figure.add_subplot(1, 2, 2)
-        self.figure.tight_layout(pad=3.0)
+        self.figure.subplots_adjust(left=0.18, right=0.78, wspace=0.35)
 
         self.canvas = FigureCanvasQTAgg(self.figure)
         layout.addWidget(self.canvas)
@@ -54,19 +59,26 @@ class ChartPanel(QGroupBox):
         )
         for t in autotexts:
             t.set_fontsize(7)
-        self.ax_pie.legend(wedges, labels, loc="lower center",
-                           ncol=2, fontsize=7,
-                           labelcolor="#8B949E", frameon=False)
+        self.ax_pie.legend(
+            wedges, labels,
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            ncol=1, fontsize=7,
+            labelcolor="#E6EDF3",
+            frameon=False,
+            handlelength=1.0,
+        )
         self.ax_pie.set_title("持仓占比", fontsize=9, color="#E6EDF3")
         self._style_ax(self.ax_pie)
 
-        # Bar: placeholder
-        stocks = [h.get("stock_name", "") for h in holdings]
-        self.ax_bar.barh(stocks, [0] * len(stocks), color="#21262D", height=0.5)
+        # Bar: show empty state — contributions load after refresh
         self.ax_bar.set_title("涨跌贡献度 (%)", fontsize=9, color="#E6EDF3")
         self.ax_bar.axvline(x=0, color="#30363D", linewidth=0.8)
+        self.ax_bar.text(0.5, 0.5, "等待刷新数据", transform=self.ax_bar.transAxes,
+                         ha="center", va="center", fontsize=10, color="#484F58")
+        self.ax_bar.set_xticks([])
+        self.ax_bar.set_yticks([])
         self._style_ax(self.ax_bar)
-        self.ax_bar.tick_params(colors="#E6EDF3", labelsize=8)
 
         self.canvas.draw()
 
@@ -74,6 +86,10 @@ class ChartPanel(QGroupBox):
         self.ax_bar.clear()
 
         if not contributions:
+            self.ax_bar.text(0.5, 0.5, "暂无贡献度数据", transform=self.ax_bar.transAxes,
+                             ha="center", va="center", fontsize=10, color="#484F58")
+            self.ax_bar.set_xticks([])
+            self.ax_bar.set_yticks([])
             self.canvas.draw()
             return
 
@@ -87,9 +103,15 @@ class ChartPanel(QGroupBox):
         self._style_ax(self.ax_bar)
         self.ax_bar.tick_params(colors="#E6EDF3", labelsize=8)
 
+        # Auto-scale the x-axis and compute smart label offset
+        self.ax_bar.relim()
+        self.ax_bar.autoscale_view()
+        x_range = abs(self.ax_bar.get_xlim()[1] - self.ax_bar.get_xlim()[0])
+        offset = max(x_range * 0.04, 0.005)
+
         for bar, val in zip(bars, values):
             x_pos = bar.get_width()
-            label_x = x_pos + 0.01 if x_pos >= 0 else x_pos - 0.08
+            label_x = x_pos + offset if x_pos >= 0 else x_pos - offset
             self.ax_bar.text(
                 label_x, bar.get_y() + bar.get_height() / 2,
                 f"{val:+.2f}", va="center", fontsize=8,
@@ -98,7 +120,41 @@ class ChartPanel(QGroupBox):
             )
         self.canvas.draw()
 
+    def show_no_holdings(self, fund_detail: dict = None):
+        """Display a message when the fund has no stock holdings (e.g. ETF feeder, bond fund)."""
+        self.ax_bar.clear()
+        self.ax_pie.clear()
+        ftype = fund_detail.get("fund_type", "") if fund_detail else ""
+        name = fund_detail.get("name", "") if fund_detail else ""
+
+        if "ETF联接" in name or "ETF链接" in name:
+            msg = "该基金为 ETF 联接基金\n主要通过投资目标 ETF 跟踪指数\n暂无直接持股数据"
+        elif "QDII" in ftype or "QDII" in name:
+            msg = "该基金为 QDII 基金\n暂无持仓明细数据"
+        elif "债券" in ftype or "债" in name:
+            msg = "该基金为债券型基金\n暂无股票持仓数据"
+        else:
+            msg = "暂无持仓数据"
+
+        self.ax_pie.text(0.5, 0.5, msg, transform=self.ax_pie.transAxes,
+                         ha="center", va="center", fontsize=9, color="#8B949E")
+        self.ax_pie.set_title("持仓占比", fontsize=9, color="#E6EDF3")
+        self._style_ax(self.ax_pie)
+
+        self.ax_bar.text(0.5, 0.5, "暂无贡献度数据", transform=self.ax_bar.transAxes,
+                         ha="center", va="center", fontsize=10, color="#484F58")
+        self.ax_bar.set_xticks([])
+        self.ax_bar.set_yticks([])
+        self.ax_bar.set_title("涨跌贡献度 (%)", fontsize=9, color="#E6EDF3")
+        self._style_ax(self.ax_bar)
+
+        self.canvas.draw()
+
     def clear(self):
         self.ax_bar.clear()
         self.ax_pie.clear()
+        self.ax_bar.text(0.5, 0.5, "请选择一只基金", transform=self.ax_bar.transAxes,
+                         ha="center", va="center", fontsize=10, color="#484F58")
+        self.ax_bar.set_xticks([])
+        self.ax_bar.set_yticks([])
         self.canvas.draw()

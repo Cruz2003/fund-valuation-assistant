@@ -1,7 +1,7 @@
 """Holdings detail table with contribution data."""
 from PySide6.QtWidgets import (
     QGroupBox, QVBoxLayout, QTableWidget,
-    QTableWidgetItem, QHeaderView,
+    QTableWidgetItem, QHeaderView, QSizePolicy,
 )
 from PySide6.QtGui import QColor, QBrush
 
@@ -27,6 +27,9 @@ class HoldingTable(QGroupBox):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
+        self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.table.setMinimumHeight(180)
+        self.table.verticalHeader().setDefaultSectionSize(32)
         layout.addWidget(self.table)
 
     def load_holdings(self, holdings: list):

@@ -1,7 +1,7 @@
 """Left panel: fund list with search, add, refresh, delete."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QListWidget, QListWidgetItem, QLineEdit, QLabel, QMessageBox, QMenu,
+    QListWidget, QListWidgetItem, QLabel, QMessageBox, QMenu,
 )
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QFont, QColor, QBrush
@@ -30,20 +30,11 @@ class FundListPanel(QWidget):
         title.setObjectName("panelTitle")
         layout.addWidget(title)
 
-        # Search + Add bar
-        search_layout = QHBoxLayout()
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("输入代码或关键词...")
-        self.search_input.returnPressed.connect(self._on_add_clicked)
-        self.search_input.setObjectName("searchInput")
-        search_layout.addWidget(self.search_input)
-
-        self.add_btn = QPushButton("添加")
+        # Add fund button
+        self.add_btn = QPushButton("+ 添加基金")
         self.add_btn.clicked.connect(self._on_add_clicked)
         self.add_btn.setObjectName("addBtn")
-        self.add_btn.setFixedWidth(60)
-        search_layout.addWidget(self.add_btn)
-        layout.addLayout(search_layout)
+        layout.addWidget(self.add_btn)
 
         # Action buttons
         btn_row = QHBoxLayout()
@@ -51,6 +42,12 @@ class FundListPanel(QWidget):
         self.refresh_btn.clicked.connect(self.refresh_requested.emit)
         self.refresh_btn.setObjectName("actionBtn")
         btn_row.addWidget(self.refresh_btn)
+
+        self.delete_btn = QPushButton("删除")
+        self.delete_btn.clicked.connect(self._on_delete_clicked)
+        self.delete_btn.setObjectName("actionBtn")
+        self.delete_btn.setEnabled(False)
+        btn_row.addWidget(self.delete_btn)
 
         self.settings_btn = QPushButton("设置")
         self.settings_btn.clicked.connect(self.settings_requested.emit)
@@ -64,10 +61,13 @@ class FundListPanel(QWidget):
         self.list_widget.itemClicked.connect(self._on_item_clicked)
         self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.list_widget.customContextMenuRequested.connect(self._show_context_menu)
+        self.list_widget.currentItemChanged.connect(
+            lambda cur, prev: self.delete_btn.setEnabled(cur is not None)
+        )
         layout.addWidget(self.list_widget)
 
         # Empty state
-        self.empty_label = QLabel("暂无基金\n输入代码或关键词添加")
+        self.empty_label = QLabel("暂无基金\n点击上方按钮添加")
         self.empty_label.setObjectName("emptyLabel")
         self.empty_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.empty_label)
@@ -127,12 +127,23 @@ class FundListPanel(QWidget):
             self.fund_selected.emit(self._funds[code])
 
     def _on_add_clicked(self):
-        keyword = self.search_input.text().strip()
-        if not keyword:
-            QMessageBox.information(self, "提示", "请输入基金代码或关键词")
+        self.add_fund_requested.emit("")
+
+    def _on_delete_clicked(self):
+        current = self.get_selected_fund()
+        if not current:
             return
-        self.add_fund_requested.emit(keyword)
-        self.search_input.clear()
+        reply = QMessageBox.question(
+            self, "确认删除",
+            f"确定要删除 {current['name']} ({current['code']}) 吗？\n"
+            f"基金数据、持仓和估值历史将被全部清除。",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            code = current["code"]
+            # Purge from memory cache immediately
+            self._funds.pop(code, None)
+            self.delete_fund_requested.emit(current["id"])
 
     def _show_context_menu(self, pos):
         item = self.list_widget.itemAt(pos)
@@ -148,10 +159,12 @@ class FundListPanel(QWidget):
         if action == delete_action:
             reply = QMessageBox.question(
                 self, "确认删除",
-                f"确定要删除 {fund['name']} ({code}) 吗？",
+                f"确定要删除 {fund['name']} ({code}) 吗？\n"
+                f"基金数据、持仓和估值历史将被全部清除。",
                 QMessageBox.Yes | QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
+                self._funds.pop(code, None)
                 self.delete_fund_requested.emit(fund["id"])
 
     def get_selected_fund(self):

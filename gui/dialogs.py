@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QDialogButtonBox, QSpinBox, QFormLayout,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 
 
 class SearchFundDialog(QDialog):
@@ -12,6 +12,8 @@ class SearchFundDialog(QDialog):
         super().__init__(parent)
         self.fund_manager = fund_manager
         self._selected_code = None
+        self._search_thread = None
+        self._search_worker = None
         self.setObjectName("searchDialog")
         self._setup_ui()
 
@@ -27,10 +29,10 @@ class SearchFundDialog(QDialog):
         self.search_input.setPlaceholderText("输入基金代码或关键词...")
         self.search_input.returnPressed.connect(self._do_search)
         search_layout.addWidget(self.search_input)
-        search_btn = QPushButton("搜索")
-        search_btn.clicked.connect(self._do_search)
-        search_btn.setObjectName("searchBtn")
-        search_layout.addWidget(search_btn)
+        self.search_btn = QPushButton("搜索")
+        self.search_btn.clicked.connect(self._do_search)
+        self.search_btn.setObjectName("searchBtn")
+        search_layout.addWidget(self.search_btn)
         layout.addLayout(search_layout)
 
         self.results_table = QTableWidget()
@@ -55,8 +57,27 @@ class SearchFundDialog(QDialog):
         keyword = self.search_input.text().strip()
         if not keyword:
             return
+        self.search_btn.setEnabled(False)
         self.status_label.setText("搜索中...")
-        results = self.fund_manager.search_funds(keyword)
+        self.results_table.setRowCount(0)
+
+        from core.refresh_worker import SearchWorker
+
+        self._search_thread = QThread()
+        self._search_worker = SearchWorker(self.fund_manager, keyword)
+        self._search_worker.moveToThread(self._search_thread)
+
+        self._search_thread.started.connect(self._search_worker.run)
+        self._search_worker.finished.connect(self._on_search_done)
+        self._search_worker.error.connect(self._on_search_error)
+        self._search_worker.finished.connect(self._search_thread.quit)
+        self._search_worker.error.connect(self._search_thread.quit)
+        self._search_thread.finished.connect(self._cleanup_search_thread)
+
+        self._search_thread.start()
+
+    def _on_search_done(self, results: list):
+        self.search_btn.setEnabled(True)
         self.results_table.setRowCount(0)
         if not results:
             self.status_label.setText("未找到匹配的基金")
@@ -68,6 +89,25 @@ class SearchFundDialog(QDialog):
             self.results_table.setItem(row, 0, QTableWidgetItem(r["code"]))
             self.results_table.setItem(row, 1, QTableWidgetItem(r["name"]))
             self.results_table.setItem(row, 2, QTableWidgetItem(r.get("fund_type", "")))
+
+    def _on_search_error(self, error_msg: str):
+        self.search_btn.setEnabled(True)
+        self.status_label.setText(f"搜索失败: {error_msg}")
+
+    def _cleanup_search_thread(self):
+        if self._search_worker:
+            self._search_worker.deleteLater()
+            self._search_worker = None
+        if self._search_thread:
+            self._search_thread.deleteLater()
+            self._search_thread = None
+
+    def reject(self):
+        # Clean up any running search thread before closing
+        if self._search_thread and self._search_thread.isRunning():
+            self._search_thread.quit()
+            self._search_thread.wait(1000)
+        super().reject()
 
     def _on_accept(self):
         current = self.results_table.currentRow()

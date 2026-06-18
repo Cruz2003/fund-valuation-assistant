@@ -1,13 +1,16 @@
-"""Right panel: fund detail — NAV card, holdings table, charts."""
+"""Right panel: fund detail — compact NAV card, holdings table, charts."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QGroupBox, QScrollArea, QFrame,
+    QGroupBox, QScrollArea, QFrame, QSizePolicy, QPushButton,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 
 
 class FundDetailPanel(QWidget):
+    refresh_clicked = Signal()
+    update_holdings_clicked = Signal()
+
     def __init__(self):
         super().__init__()
         self.setObjectName("detailPanel")
@@ -24,29 +27,44 @@ class FundDetailPanel(QWidget):
         content = QWidget()
         content.setObjectName("detailContent")
         self.content_layout = QVBoxLayout(content)
-        self.content_layout.setContentsMargins(16, 16, 16, 16)
-        self.content_layout.setSpacing(12)
+        self.content_layout.setContentsMargins(12, 10, 12, 10)
+        self.content_layout.setSpacing(10)
 
-        # --- Fund info card ---
+        # --- Fund info card (compact) ---
         self.info_card = QGroupBox("基金信息")
         self.info_card.setObjectName("infoCard")
         info_layout = QVBoxLayout(self.info_card)
-        info_layout.setContentsMargins(16, 20, 16, 16)
-        info_layout.setSpacing(8)
+        info_layout.setContentsMargins(12, 16, 12, 10)
+        info_layout.setSpacing(4)
 
+        # Name + code + refresh button in one row
+        header_row = QHBoxLayout()
+        header_row.setSpacing(8)
         self.name_label = QLabel("请选择一只基金")
         self.name_label.setObjectName("fundName")
-        info_layout.addWidget(self.name_label)
-
+        header_row.addWidget(self.name_label)
+        header_row.addStretch()
         self.code_label = QLabel("")
         self.code_label.setObjectName("fundCode")
-        info_layout.addWidget(self.code_label)
+        header_row.addWidget(self.code_label)
+        self.refresh_btn = QPushButton("刷新估值")
+        self.refresh_btn.setObjectName("detailRefreshBtn")
+        self.refresh_btn.setFixedWidth(72)
+        self.refresh_btn.clicked.connect(self.refresh_clicked.emit)
+        header_row.addWidget(self.refresh_btn)
+        self.update_holdings_btn = QPushButton("更新持仓")
+        self.update_holdings_btn.setObjectName("detailRefreshBtn")
+        self.update_holdings_btn.setFixedWidth(72)
+        self.update_holdings_btn.clicked.connect(self.update_holdings_clicked.emit)
+        header_row.addWidget(self.update_holdings_btn)
+        info_layout.addLayout(header_row)
 
-        # NAV row
+        # NAV row — compact, 3 values side by side
         nav_frame = QFrame()
         nav_frame.setObjectName("navFrame")
         nav_layout = QHBoxLayout(nav_frame)
-        nav_layout.setSpacing(24)
+        nav_layout.setSpacing(32)
+        nav_layout.setContentsMargins(8, 4, 8, 4)
 
         for title_text, obj_name in [
             ("昨日净值", "navYesterday"),
@@ -54,6 +72,7 @@ class FundDetailPanel(QWidget):
             ("预计涨幅", "navChange"),
         ]:
             col = QVBoxLayout()
+            col.setSpacing(2)
             t = QLabel(title_text)
             t.setObjectName("navTitle")
             col.addWidget(t)
@@ -72,14 +91,18 @@ class FundDetailPanel(QWidget):
         # --- Holdings table ---
         from gui.holding_table import HoldingTable
         self.holding_table = HoldingTable()
-        self.content_layout.addWidget(self.holding_table)
+        self.holding_table.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding
+        )
+        self.content_layout.addWidget(self.holding_table, stretch=3)
 
         # --- Charts ---
         from gui.chart_panel import ChartPanel
         self.chart_panel = ChartPanel()
-        self.content_layout.addWidget(self.chart_panel)
-
-        self.content_layout.addStretch()
+        self.chart_panel.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding
+        )
+        self.content_layout.addWidget(self.chart_panel, stretch=4)
 
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
@@ -105,12 +128,16 @@ class FundDetailPanel(QWidget):
         else:
             self.estimated_nav_label.setText("--")
             self.change_label.setText("--")
-            self.change_label.setStyleSheet("color: #B0BEC5; font-size: 24px; font-weight: bold;")
+            self.change_label.setStyleSheet("color: #B0BEC5; font-size: 16px; font-weight: bold;")
 
         # Holdings
         holdings = fund_detail.get("holdings", [])
-        self.holding_table.load_holdings(holdings)
-        self.chart_panel.update_data(holdings)
+        if holdings:
+            self.holding_table.load_holdings(holdings)
+            self.chart_panel.update_data(holdings)
+        else:
+            self.holding_table.clear()
+            self.chart_panel.show_no_holdings(fund_detail)
 
     def update_valuation(self, valuation: dict):
         est_nav = valuation.get("estimated_nav", 0)
@@ -133,7 +160,7 @@ class FundDetailPanel(QWidget):
         else:
             color = "#B0BEC5"
         self.change_label.setStyleSheet(
-            f"color: {color}; font-size: 24px; font-weight: bold;"
+            f"color: {color}; font-size: 16px; font-weight: bold;"
         )
 
     def clear(self):
@@ -142,6 +169,6 @@ class FundDetailPanel(QWidget):
         self.nav_yesterday_label.setText("--")
         self.estimated_nav_label.setText("--")
         self.change_label.setText("--")
-        self.change_label.setStyleSheet("color: #B0BEC5; font-size: 24px; font-weight: bold;")
+        self.change_label.setStyleSheet("color: #B0BEC5; font-size: 16px; font-weight: bold;")
         self.holding_table.clear()
         self.chart_panel.clear()
