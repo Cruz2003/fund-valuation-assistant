@@ -112,7 +112,7 @@ class DataFetcher:
     def _detect_market(self, code: str) -> str:
         """Detect market from stock code pattern."""
         code = code.strip()
-        if code.startswith(("60", "00", "30", "688")):
+        if len(code) == 6 and code.isdigit() and code.startswith(("60", "00", "30", "688")):
             return "A"
         elif len(code) == 5 and code.isdigit():
             return "HK"
