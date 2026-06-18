@@ -1,6 +1,7 @@
 import akshare as ak
 import time
 from typing import Optional
+from datetime import datetime
 
 import pandas as pd
 
@@ -80,7 +81,8 @@ class DataFetcher:
         """Fetch top 10 holdings for a fund."""
         try:
             # Try latest year first
-            df = ak.fund_portfolio_hold_em(symbol=code, date="2025")
+            current_year = str(datetime.now().year)
+            df = ak.fund_portfolio_hold_em(symbol=code, date=current_year)
             if df is None or df.empty:
                 df = ak.fund_portfolio_hold_em(symbol=code)
             if df is None or df.empty:
