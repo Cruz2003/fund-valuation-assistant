@@ -4,7 +4,7 @@ import time
 import requests
 import os
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -157,21 +157,38 @@ class DataFetcher:
             return "US"
 
     def fetch_stock_quotes(self, codes: list, market: str) -> Optional[dict]:
-        """Fetch real-time quotes for a list of stock codes."""
+        """Fetch real-time quotes for a list of stock codes.
+
+        For codes whose primary market fetch fails, falls back to Korean
+        market.  When the fallback succeeds, the resolved codes are noted
+        in ``_kr_resolved`` so the caller can persist the correct market.
+        """
         if not codes:
             return {}
+        result = {}
         try:
             if market == "A":
-                return self._fetch_a_quotes(codes)
+                result = self._fetch_a_quotes(codes)
             elif market == "HK":
-                return self._fetch_hk_quotes(codes)
+                result = self._fetch_hk_quotes(codes)
             elif market == "US":
-                return self._fetch_us_quotes(codes)
-            else:
-                return {}
+                result = self._fetch_us_quotes(codes)
+            elif market == "KR":
+                result = self._fetch_kr_quotes(codes)
         except Exception as e:
             logger.error(f"Error fetching {market} quotes: {e}")
-            return {}
+
+        # Fallback: try Korean market for any codes the primary fetch missed.
+        # Codes already marked "KR" are fetched directly and won't reach here.
+        unmatched = [c for c in codes if c not in result]
+        if unmatched:
+            kr_result = self._fetch_kr_quotes(unmatched)
+            kr_hits = [c for c in unmatched if c in kr_result]
+            if kr_hits:
+                result["_kr_resolved"] = kr_hits
+            result.update(kr_result)
+
+        return result
 
     def _fetch_a_quotes(self, codes: list) -> dict:
         """Fetch A-share real-time quotes via Sina single-stock API.
@@ -299,6 +316,45 @@ class DataFetcher:
                 }
             except Exception as e:
                 logger.error(f"US quote error for {code}: {e}")
+        return result
+
+    def _fetch_kr_quotes(self, codes: list) -> dict:
+        """Fetch Korean stock quotes via FinanceDataReader.
+        6-digit codes (e.g. 005930=三星电子, 000660=SK海力士).
+        Data source: KRX via Yahoo Finance — may have ~15 min delay.
+        """
+        result = {}
+        try:
+            import FinanceDataReader as fdr
+        except ImportError:
+            logger.warning(
+                "FinanceDataReader not installed. "
+                "Korean stock quotes unavailable. "
+                "Install with: pip install finance-datareader"
+            )
+            return result
+
+        for code in codes:
+            try:
+                end = date.today()
+                start = end - timedelta(days=10)
+                df = fdr.DataReader(code, start, end)
+                if df is None or df.empty:
+                    continue
+                latest = df.iloc[-1]
+                prev = df.iloc[-2] if len(df) > 1 else latest
+                price = float(latest["Close"])
+                prev_close = float(prev["Close"])
+                if price <= 0:
+                    continue
+                change_pct = (price - prev_close) / prev_close * 100
+                result[code] = {
+                    "price": round(price, 2),
+                    "change_pct": round(change_pct, 2),
+                    "name": code,
+                }
+            except Exception as e:
+                logger.error(f"KR quote error for {code}: {e}")
         return result
 
     def search_funds(self, keyword: str) -> Optional[list]:

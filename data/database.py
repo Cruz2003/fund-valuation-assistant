@@ -153,6 +153,18 @@ class Database:
         finally:
             conn.close()
 
+    def update_holding_market(self, fund_id: int, stock_code: str, market: str):
+        """Correct the market tag for a stock holding (e.g. A→KR after learning)."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE holdings SET market = ? WHERE fund_id = ? AND stock_code = ?",
+                (market, fund_id, stock_code)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def get_holdings(self, fund_id: int) -> list:
         conn = self._get_conn()
         try:

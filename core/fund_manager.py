@@ -91,6 +91,7 @@ class FundManager:
 
         # Fetch quotes market by market, with per-stock progress
         all_quotes = {}
+        kr_resolved = []  # codes whose market tag needs correcting → KR
         for market, stocks in markets.items():
             codes = [s["stock_code"] for s in stocks]
 
@@ -104,7 +105,16 @@ class FundManager:
                     [s["stock_code"]], market
                 )
                 if quotes:
+                    # Extract market-learning metadata before merging
+                    newly_kr = quotes.pop("_kr_resolved", [])
+                    if newly_kr:
+                        kr_resolved.extend(newly_kr)
                     all_quotes.update(quotes)
+
+        # Persist learned market corrections so next refresh goes straight
+        # to the correct source (zero wasted fallback attempts).
+        for stock_code in kr_resolved:
+            self.db.update_holding_market(fund_id, stock_code, "KR")
 
         # Calculate valuation
         if progress_callback:
