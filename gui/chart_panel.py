@@ -106,6 +106,8 @@ class ChartPanel(QGroupBox):
         # Auto-scale the x-axis and compute smart label offset
         self.ax_bar.relim()
         self.ax_bar.autoscale_view()
+        # Add extra x-axis margin so value labels don't clip or overlap y-axis stock names
+        self.ax_bar.margins(x=0.20)
         x_range = abs(self.ax_bar.get_xlim()[1] - self.ax_bar.get_xlim()[0])
         offset = max(x_range * 0.04, 0.005)
 

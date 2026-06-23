@@ -1,6 +1,6 @@
 """Holdings detail table with contribution data."""
 from PySide6.QtWidgets import (
-    QGroupBox, QVBoxLayout, QTableWidget,
+    QGroupBox, QVBoxLayout, QTableWidget, QLabel,
     QTableWidgetItem, QHeaderView, QSizePolicy,
 )
 from PySide6.QtGui import QColor, QBrush
@@ -17,6 +17,7 @@ class HoldingTable(QGroupBox):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 16, 8, 8)
+        layout.setSpacing(4)
 
         self.table = QTableWidget()
         self.table.setObjectName("dataTable")
@@ -32,7 +33,16 @@ class HoldingTable(QGroupBox):
         self.table.verticalHeader().setDefaultSectionSize(32)
         layout.addWidget(self.table)
 
+        self.total_label = QLabel("")
+        self.total_label.setObjectName("totalLabel")
+        self.total_label.setStyleSheet(
+            "color: #8B949E; font-size: 11px; padding: 2px 4px; background: transparent;"
+        )
+        layout.addWidget(self.total_label)
+
     def load_holdings(self, holdings: list):
+        total_weight = sum(h.get("weight", 0) for h in holdings)
+        self.total_label.setText(f"前十大持仓合计 {total_weight:.2f}%")
         self.table.setRowCount(len(holdings))
         for i, h in enumerate(holdings):
             self.table.setItem(i, 0, QTableWidgetItem(h.get("stock_name", "")))
@@ -69,4 +79,5 @@ class HoldingTable(QGroupBox):
             self.table.setItem(i, 5, c_item)
 
     def clear(self):
+        self.total_label.setText("")
         self.table.setRowCount(0)
